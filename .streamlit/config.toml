@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#3B82F6"        # Biru modern
+backgroundColor = "#F9FAFB"     # Latar sangat terang
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1F2937"
+font = "sans serif"
