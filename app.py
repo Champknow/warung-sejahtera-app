@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import io
 from datetime import datetime, timedelta
 
 st.set_page_config(
@@ -11,7 +12,7 @@ st.set_page_config(
 )
 
 # =============================================
-# CUSTOM CSS (UI Enhancement)
+# CUSTOM CSS (UI Enhancement + Perbaikan Alignment)
 # =============================================
 st.markdown("""
 <style>
@@ -83,6 +84,18 @@ st.markdown("""
         height: 1px;
         background: linear-gradient(to right, transparent, #CBD5E1, transparent);
     }
+    
+    /* Perbaikan Alignment Kolom Dashboard */
+    div[data-testid="column"] {
+        display: flex;
+        flex-direction: column;
+    }
+    div[data-testid="column"] > div:first-child {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,19 +155,19 @@ def save_transaction(product_id, product_name, qty, total_price, profit):
 # =============================================
 # SIDEBAR
 # =============================================
-st.sidebar.title("Warung Sejahtera v2.1")
+st.sidebar.title("Warung Sejahtera v2.2")
+st.sidebar.caption("✨ Tema dapat diubah di Settings (⚙️ pojok kanan atas)")
 menu = st.sidebar.radio("Menu", ["🏠 Dashboard", "📦 Kelola Barang", "💰 Kasir / Penjualan", "📋 Riwayat Transaksi"])
 
-# Footer di Sidebar
 st.sidebar.markdown("---")
-st.sidebar.caption("v2.1 · Dibuat dengan ❤️ untuk belajar SDLC")
+st.sidebar.caption("v2.2 · Dibuat dengan ❤️ untuk belajar SDLC")
 st.sidebar.caption("© 2025 Warung Sejahtera")
 
 # =============================================
 # DASHBOARD
 # =============================================
 if menu == "🏠 Dashboard":
-    st.title("Dashboard Warung Sejahtera v2.1")
+    st.title("Dashboard Warung Sejahtera v2.2")
     
     df_products = load_products()
     df_trans = load_transactions()
@@ -170,7 +183,6 @@ if menu == "🏠 Dashboard":
         mask_today = df_trans['timestamp'].dt.date == today
         laba_hari_ini = df_trans.loc[mask_today, 'profit'].sum()
     
-    # --- METRIC CARDS DALAM CONTAINER ---
     with st.container():
         st.markdown("### 📈 Ringkasan Hari Ini")
         col1, col2, col3 = st.columns(3)
@@ -189,11 +201,12 @@ if menu == "🏠 Dashboard":
     left_col, right_col = st.columns(2)
     
     with left_col:
-        st.subheader("📊 Top 5 Produk Terlaris (Semua Waktu)")
+        st.subheader("📊 Top 5 Produk Terlaris (Klik Bar untuk Detail)")
         if not df_trans.empty:
             import altair as alt
             top_products = df_trans.groupby('product_name')['qty'].sum().nlargest(5).reset_index()
             
+            selection = alt.selection_point(fields=['product_name'])
             chart = alt.Chart(top_products).mark_bar(
                 color='#3B82F6',
                 cornerRadiusTopLeft=8,
@@ -202,10 +215,10 @@ if menu == "🏠 Dashboard":
             ).encode(
                 x=alt.X('qty:Q', title='Total Terjual', axis=alt.Axis(grid=False)),
                 y=alt.Y('product_name:N', sort='-x', title=None, axis=alt.Axis(labelFontSize=13, labelFontWeight='medium')),
-                tooltip=[
-                    alt.Tooltip('product_name:N', title='Produk'),
-                    alt.Tooltip('qty:Q', title='Total Terjual', format=',')
-                ]
+                tooltip=['product_name', 'qty'],
+                opacity=alt.condition(selection, alt.value(1), alt.value(0.4))
+            ).add_params(
+                selection
             ).properties(
                 height=300
             ).configure_view(
@@ -215,10 +228,30 @@ if menu == "🏠 Dashboard":
                 titleColor='#4B5563'
             )
             
-            st.altair_chart(chart, use_container_width=True)
+            selected = st.altair_chart(chart, use_container_width=True, on_select="rerun")
+            
+            if selected and selected.selection and 'product_name' in selected.selection:
+                produk_terpilih = selected.selection['product_name'][0]
+                st.success(f"📌 Menampilkan transaksi untuk: **{produk_terpilih}**")
+                trans_produk = df_trans[df_trans['product_name'] == produk_terpilih]
+                if not trans_produk.empty:
+                    st.dataframe(
+                        trans_produk[['timestamp', 'qty', 'total_price', 'profit']].rename(columns={
+                            'timestamp': 'Waktu',
+                            'qty': 'Qty',
+                            'total_price': 'Total',
+                            'profit': 'Laba'
+                        }),
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                else:
+                    st.info("Belum ada transaksi untuk produk ini.")
+            else:
+                st.info("👆 Klik salah satu bar untuk melihat detail transaksi.")
         else:
             st.info("Belum ada data penjualan.")
-    
+
     with right_col:
         st.subheader("🚨 Stok Menipis (< 5 pcs)")
         if not df_products.empty:
@@ -370,6 +403,17 @@ elif menu == "📋 Riwayat Transaksi":
                 display_df[['Jam', 'ID Transaksi', 'Produk', 'Qty', 'Total (Rp)', 'Laba (Rp)']],
                 use_container_width=True,
                 hide_index=True
+            )
+            
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_filtered.to_excel(writer, index=False, sheet_name='Riwayat')
+            
+            st.download_button(
+                label="📥 Download Laporan (Excel)",
+                data=buffer.getvalue(),
+                file_name=f"warung_sejahtera_{filter_date.strftime('%Y%m%d') if filter_date else 'all'}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
             
             total_penjualan = df_filtered['total_price'].sum()
